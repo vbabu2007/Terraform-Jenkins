@@ -1,54 +1,59 @@
 pipeline {
+    agent any
 
-    parameters {
-        booleanParam(name: 'autoApprove', defaultValue: false, description: 'Automatically run apply after generating plan?')
-    } 
     environment {
-        AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
-        AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+        TF_VERSION = '1.6.0' // Optional: set your required Terraform version
+        TF_WORKSPACE = 'default'
     }
 
-   agent  any
+    tools {
+        terraform "${TF_VERSION}"
+    }
+
     stages {
-        stage('checkout') {
+        stage('Clone GitHub Repo') {
             steps {
-                 script{
-                        dir("Terraform-Jenkins")
-                        {
-                            git "https://github.com/vbabu2007/Terraform-Jenkins.git"
-                        }
-                    }
+                git credentialsId: 'vbabu2007', url: 'https://github.com/vbabu2007/Terraform-Jenkins.git', branch: 'main'
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                sh 'terraform init'
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                sh 'terraform validate'
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                sh 'terraform plan -out=tfplan'
+            }
+        }
+
+        stage('Terraform Apply') {
+            when {
+                expression {
+                    return params.APPLY_TERRAFORM == true
                 }
             }
-
-        stage('Plan') {
             steps {
-                sh 'pwd;cd Terraform-Jenkins/ ; terraform init'
-                sh "pwd;cd Terraform-Jenkins/ ; terraform plan -out tfplan"
-                sh 'pwd;cd Terraform-Jenkins/ ; terraform show -no-color tfplan > tfplan.txt'
-            }
-        }
-        stage('Approval') {
-           when {
-               not {
-                   equals expected: true, actual: params.autoApprove
-               }
-           }
-
-           steps {
-               script {
-                    def plan = readFile 'terraform/tfplan.txt'
-                    input message: "Do you want to apply the plan?",
-                    parameters: [text(name: 'Plan', description: 'Please review the plan', defaultValue: plan)]
-               }
-           }
-       }
-
-        stage('Apply') {
-            steps {
-                sh "pwd;cd Terraform-Jenkins/ ; terraform apply -input=false tfplan"
+                sh 'terraform apply -auto-approve tfplan'
             }
         }
     }
 
-  }
+    parameters {
+        booleanParam(name: 'APPLY_TERRAFORM', defaultValue: false, description: 'Apply Terraform Plan?')
+    }
+
+    post {
+        always {
+            echo "Pipeline finished"
+        }
+    }
+}
